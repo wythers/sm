@@ -26,9 +26,9 @@ var ErrTokenNotFound = errors.New("token not found")
 var ErrGetEnergyFailed = errors.New("get energy failed")
 var ErrInsufficientEnergy = errors.New("insufficient energy")
 
-type clean = func(context.Context, string)
+type clean = func(string, string, int64, string)
 
-func nothing(_ context.Context, _ string) {}
+func nothing(_ string, _ string, _ int64, _ string) {}
 
 type Client struct {
 	http.Client
@@ -581,10 +581,10 @@ func (c *Client) LockEnergy(owner, receiver string, balance int64, privateKeyHex
 		return nothing, 0, errors.New("faied verify delegate resource transaction: " + err.Error())
 	}
 
-	return nothing, cnt, nil
+	return c.UnlockEnergy, cnt - 1, nil
 }
 
-func (c *Client) Back(owner, receiver string, balance int64, privateKeyHex string) {
+func (c *Client) UnlockEnergy(owner, receiver string, balance int64, privateKeyHex string) {
 	txID, err := c.UndelegateResourceWithKey(owner, receiver, balance, "ENERGY", privateKeyHex)
 	if err != nil {
 		return
