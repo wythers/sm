@@ -118,11 +118,11 @@ func IsValidTronAddress(addr string) bool {
 		return false
 	}
 
-	calculatedChecksum := s256(s256(addressBytes))[:4]
+	calculatedChecksum := S256(S256(addressBytes))[:4]
 	return bytes.Equal(checksum, calculatedChecksum)
 }
 
-func s256(s []byte) []byte {
+func S256(s []byte) []byte {
 	h := sha256.New()
 	h.Write(s)
 	return h.Sum(nil)
@@ -143,8 +143,8 @@ func HexToBase58(hexStr string) string {
 		return ""
 	}
 
-	h1 := s256(bytes)
-	h2 := s256(h1)
+	h1 := S256(bytes)
+	h2 := S256(h1)
 	bytes = append(bytes, h2[:4]...)
 
 	return base58.Encode(bytes)

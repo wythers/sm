@@ -172,7 +172,7 @@ func (c *Client) GetTRXBalance(address string) (decimal.Decimal, error) {
 // 	return balances, nil
 // }
 
-func (c *Client) signRawTransaction(tx *model.Raw, key *ecdsa.PrivateKey) (*model.SignedTx, error) {
+func (c *Client) SignRawTransaction(tx *model.Raw, key *ecdsa.PrivateKey) (*model.SignedTx, error) {
 	rawData, err := json.Marshal(tx.RawData)
 	if err != nil {
 		return nil, err
@@ -198,7 +198,7 @@ func (c *Client) signRawTransaction(tx *model.Raw, key *ecdsa.PrivateKey) (*mode
 	return signedTx, nil
 }
 
-func (c *Client) broadcastTransaction(tx *model.SignedTx) (string, error) {
+func (c *Client) BroadcastTransaction(tx *model.SignedTx) (string, error) {
 	js, err := json.Marshal(tx)
 	if err != nil {
 		return "", err
@@ -279,12 +279,12 @@ func (c *Client) FreezeBalance2WithKey(ownerAddress string, frozenBalance int64,
 		return "", fmt.Errorf("freezebalancev2 API response has empty TxID, response: %s", string(body))
 	}
 
-	signedTx, err := c.signRawTransaction(&raw, privateKey)
+	signedTx, err := c.SignRawTransaction(&raw, privateKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign transaction: %v", err)
 	}
 
-	txID, err := c.broadcastTransaction(signedTx)
+	txID, err := c.BroadcastTransaction(signedTx)
 	if err != nil {
 		return "", fmt.Errorf("failed to broadcast transaction: %v", err)
 	}
@@ -328,12 +328,12 @@ func (c *Client) DelegateResourceWithKey(ownerAddress string, receiverAddress st
 		return "", fmt.Errorf("delegateresource API response has empty TxID, response: %s", string(body))
 	}
 
-	signedTx, err := c.signRawTransaction(&raw, privateKey)
+	signedTx, err := c.SignRawTransaction(&raw, privateKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign transaction: %v", err)
 	}
 
-	txID, err := c.broadcastTransaction(signedTx)
+	txID, err := c.BroadcastTransaction(signedTx)
 	if err != nil {
 		return "", fmt.Errorf("failed to broadcast transaction: %v", err)
 	}
@@ -402,12 +402,12 @@ func (c *Client) UndelegateResourceWithKey(ownerAddress string, receiverAddress 
 		return "", fmt.Errorf("undelegateresource API response has empty TxID, response: %s", string(body))
 	}
 
-	signedTx, err := c.signRawTransaction(&raw, privateKey)
+	signedTx, err := c.SignRawTransaction(&raw, privateKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign transaction: %v", err)
 	}
 
-	txID, err := c.broadcastTransaction(signedTx)
+	txID, err := c.BroadcastTransaction(signedTx)
 	if err != nil {
 		return "", fmt.Errorf("failed to broadcast transaction: %v", err)
 	}
@@ -591,6 +591,107 @@ func (c *Client) UnlockEnergy(owner, receiver string, balance int64, privateKeyH
 	}
 
 	_ = c.CheckE(txID)
+}
+
+func (c *Client) RawTrxTransaction(from, to string, amount decimal.Decimal) (*model.Raw, string, error) {
+	if !util.IsValidTronAddress(to) {
+		return nil, "", errors.New("invalid tron to address")
+	}
+
+	var rawTransaction model.Raw
+	amt := util.DecimalToBigInt(amount, 6)
+
+	data := []byte(
+		`{
+				"owner_address": "` + from + `",
+				"to_address": "` + to + `",
+				"amount": ` + amt.String() + `,
+				"visible": true
+			  }`,
+	)
+
+	response, status, err := c.jsonRPC(
+		data,
+		c.Url+"/wallet/createtransaction",
+		"POST",
+	)
+
+	if err != nil {
+		return nil, "", err
+	}
+	if status != 200 {
+		return nil, "", fmt.Errorf("createTransaction status: %d,  body: %s", status, string(response))
+	}
+	err = json.Unmarshal(response, &rawTransaction)
+	if err != nil {
+		return nil, "", err
+	}
+	if rawTransaction.TxID == "" {
+		return nil, "", errors.New(string(response))
+	}
+
+	return &rawTransaction, string(response), nil
+}
+
+func (c *Client) RawTrc20Transaction(from, to string, contractAddress string, amount decimal.Decimal, decimals int) (*model.Raw, string, error) {
+	if !util.IsValidTronAddress(to) || !util.IsValidTronAddress(contractAddress) {
+		return nil, "", errors.New("invalid tron to address")
+	}
+
+	// token, ok := TokenMap[TokenTransform[strings.ToLower(tokenSymbol)]]
+	// if !ok {
+	// 	return nil, "", errors.New("token not supported")
+	// }
+
+	// if trxBalance.LessThan(requiredGasFee) {
+	// 	return nil, "", fmt.Errorf("insufficient TRX for transaction fee: have %s, need %s", trxBalance.String(), requiredGasFee.String())
+	// }
+
+	denomination := decimal.New(1, int32(decimals))
+	value := fmt.Sprintf("%x", amount.Mul(denomination).IntPart())
+
+	payload := `
+	{
+		"owner_address": "` + util.Base58ToHex(from) + `",
+		"contract_address": "` + util.Base58ToHex(contractAddress) + `", 
+		"function_selector":"transfer(address,uint256)",
+		"parameter":"` + strings.Repeat("0", 24) + util.Base58ToHex(to)[2:] + strings.Repeat("0", 64-len(value)) + value + `",
+		"call_value":0,
+		"fee_limit":10000000000
+	}`
+
+	response, status, err := c.jsonRPC(
+		[]byte(payload),
+		c.Url+"/wallet/triggersmartcontract",
+		"POST",
+	)
+	if err != nil {
+		return nil, "", err
+	}
+	if status != 200 {
+		return nil, "", fmt.Errorf("triggersmartcontract status: %d, body: %s", status, string(response))
+	}
+
+	var result struct {
+		Transaction model.Raw
+	}
+	err = json.Unmarshal(response, &result)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if result.Transaction.TxID == "" {
+		return nil, "", fmt.Errorf("triggersmartcontract response: %s", string(response))
+	}
+
+	result.Transaction.Visible = false
+
+	rawJSON, err := json.Marshal(result.Transaction)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return &result.Transaction, string(rawJSON), nil
 }
 
 func (c *Client) jsonRPC(data []byte, url, requestType string) ([]byte, int, error) {
