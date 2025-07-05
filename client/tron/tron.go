@@ -38,9 +38,10 @@ type Client struct {
 	Url string
 }
 
-func NewClient(url string) *Client {
+func NewClient(ctx context.Context, url string) *Client {
 	return &Client{
 		Client: http.Client{},
+		Ctx:    ctx,
 		Url:    url,
 	}
 }
