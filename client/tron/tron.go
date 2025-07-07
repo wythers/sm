@@ -639,15 +639,6 @@ func (c *Client) RawTrc20Transaction(from, to string, contractAddress string, am
 		return nil, "", errors.New("invalid tron to address")
 	}
 
-	// token, ok := TokenMap[TokenTransform[strings.ToLower(tokenSymbol)]]
-	// if !ok {
-	// 	return nil, "", errors.New("token not supported")
-	// }
-
-	// if trxBalance.LessThan(requiredGasFee) {
-	// 	return nil, "", fmt.Errorf("insufficient TRX for transaction fee: have %s, need %s", trxBalance.String(), requiredGasFee.String())
-	// }
-
 	denomination := decimal.New(1, int32(decimals))
 	value := fmt.Sprintf("%x", amount.Mul(denomination).IntPart())
 
