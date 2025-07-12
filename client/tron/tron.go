@@ -23,8 +23,9 @@ import (
 var ErrNotSynced = errors.New("transaction not synced to solidity node")
 var ErrTransactionFailed = errors.New("transaction failed")
 var ErrTokenNotFound = errors.New("token not found")
-var ErrGetEnergyFailed = errors.New("get energy failed")
+var ErrGetTransactionFailed = errors.New("get transaction failed")
 var ErrInsufficientEnergy = errors.New("insufficient energy")
+var ErrInactiveAndNotEnoughNet = errors.New("inactive and no enough net")
 
 type clean = func(string, string, int64, string)
 
@@ -467,7 +468,7 @@ func (c *Client) GetAccountResource(address string) (*model.AccountResource, err
 	return &resource, nil
 }
 
-func (c *Client) CheckE(txHash string) error {
+func (c *Client) WaittingTransactionConfirmed(txHash string) error {
 	maxRetries := 30
 	retryInterval := 10 * time.Second
 
@@ -491,7 +492,7 @@ func (c *Client) CheckE(txHash string) error {
 	}
 
 	if !stage1 {
-		return ErrGetEnergyFailed
+		return ErrGetTransactionFailed
 	}
 
 	for i := 0; i < maxRetries; i++ {
@@ -528,7 +529,7 @@ func (c *Client) CheckE(txHash string) error {
 	}
 
 	if !stage2 {
-		return ErrGetEnergyFailed
+		return ErrGetTransactionFailed
 	}
 
 	return nil
@@ -546,7 +547,7 @@ func (c *Client) LockEnergy(owner, receiver string, balance int64, privateKeyHex
 			return nothing, 0, errors.New("undelegate resource failed: " + err.Error())
 		}
 
-		err = c.CheckE(txID)
+		err = c.WaittingTransactionConfirmed(txID)
 		if err != nil {
 			return nothing, 0, errors.New("failed verify undelegate resource transaction: " + err.Error())
 		}
@@ -577,7 +578,7 @@ func (c *Client) LockEnergy(owner, receiver string, balance int64, privateKeyHex
 		return nothing, 0, errors.New("delegate resource failed: " + err.Error())
 	}
 
-	err = c.CheckE(txID)
+	err = c.WaittingTransactionConfirmed(txID)
 	if err != nil {
 		return nothing, 0, errors.New("faied verify delegate resource transaction: " + err.Error())
 	}
@@ -591,7 +592,7 @@ func (c *Client) UnlockEnergy(owner, receiver string, balance int64, privateKeyH
 		return
 	}
 
-	_ = c.CheckE(txID)
+	_ = c.WaittingTransactionConfirmed(txID)
 }
 
 func (c *Client) RawTrxTransaction(from, to string, amount decimal.Decimal) (*model.Raw, string, error) {
@@ -684,6 +685,60 @@ func (c *Client) RawTrc20Transaction(from, to string, contractAddress string, am
 	}
 
 	return &result.Transaction, string(rawJSON), nil
+}
+
+func (c *Client) MakeActiveForTransferWithEnergy(energy, receiver, privateKeyHex string) error {
+	src, err := c.GetAccountResource(receiver)
+	if err != nil {
+		return err
+	}
+	if src.FreeNetLimit == 0 {
+		raw, _, err := c.RawTrxTransaction(energy, receiver, decimal.NewFromFloat(0.000001))
+		if err != nil {
+			return err
+		}
+
+		pk, err := crypto.HexToECDSA(privateKeyHex)
+		if err != nil {
+			return err
+		}
+
+		signedTransaction, err := c.SignRawTransaction(raw, pk)
+		if err != nil {
+			return err
+		}
+
+		txid, err := c.BroadcastTransaction(signedTransaction)
+		if err != nil {
+			return err
+		}
+		if txid != raw.TxID {
+			return errors.New("broadcast transaction txid: " + raw.TxID + ", but got: " + txid)
+		}
+
+		err = c.WaittingTransactionConfirmed(txid)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	trx, err := c.GetTRXBalance(receiver)
+	if err != nil {
+		return err
+	}
+	net := src.FreeNetLimit - src.FreeNetUsed
+
+	if net >= 500 {
+		return nil
+	}
+
+	if trx.GreaterThan(decimal.NewFromFloat(1)) {
+		return nil
+	}
+
+	return ErrInactiveAndNotEnoughNet
 }
 
 func (c *Client) jsonRPC(data []byte, url, requestType string) ([]byte, int, error) {
