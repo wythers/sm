@@ -573,6 +573,11 @@ func (c *Client) LockEnergy(owner, receiver string, balance int64, privateKeyHex
 
 	//	panic("now: " + now + " cnt: " + cnt.String() + " s: " + s.String() + " e.B: " + strconv.FormatInt(e.B, 10))
 
+	err = c.MakeActiveForTransferWithEnergy(owner, receiver, privateKeyHex)
+	if err != nil {
+		return nothing, 0, errors.New("make active for transfer with energy failed: " + err.Error())
+	}
+
 	txID, err := c.DelegateResourceWithKey(owner, receiver, balance, "ENERGY", privateKeyHex)
 	if err != nil {
 		return nothing, 0, errors.New("delegate resource failed: " + err.Error())
