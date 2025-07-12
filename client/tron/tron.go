@@ -697,53 +697,40 @@ func (c *Client) MakeActiveForTransferWithEnergy(energy, receiver, privateKeyHex
 	if err != nil {
 		return err
 	}
-	if src.FreeNetLimit == 0 {
-		raw, _, err := c.RawTrxTransaction(energy, receiver, decimal.NewFromFloat(0.000001))
-		if err != nil {
-			return err
-		}
 
-		pk, err := crypto.HexToECDSA(privateKeyHex)
-		if err != nil {
-			return err
-		}
-
-		signedTransaction, err := c.SignRawTransaction(raw, pk)
-		if err != nil {
-			return err
-		}
-
-		txid, err := c.BroadcastTransaction(signedTransaction)
-		if err != nil {
-			return err
-		}
-		if txid != raw.TxID {
-			return errors.New("broadcast transaction txid: " + raw.TxID + ", but got: " + txid)
-		}
-
-		err = c.WaittingTransactionConfirmed(txid)
-		if err != nil {
-			return err
-		}
-
+	if src.FreeNetLimit > 0 {
 		return nil
 	}
 
-	trx, err := c.GetTRXBalance(receiver)
+	raw, _, err := c.RawTrxTransaction(energy, receiver, decimal.NewFromFloat(0.000001))
 	if err != nil {
 		return err
 	}
-	net := src.FreeNetLimit - src.FreeNetUsed
 
-	if net >= 500 {
-		return nil
+	pk, err := crypto.HexToECDSA(privateKeyHex)
+	if err != nil {
+		return err
 	}
 
-	if trx.GreaterThan(decimal.NewFromFloat(1)) {
-		return nil
+	signedTransaction, err := c.SignRawTransaction(raw, pk)
+	if err != nil {
+		return err
 	}
 
-	return ErrInactiveAndNotEnoughNet
+	txid, err := c.BroadcastTransaction(signedTransaction)
+	if err != nil {
+		return err
+	}
+	if txid != raw.TxID {
+		return errors.New("broadcast transaction txid: " + raw.TxID + ", but got: " + txid)
+	}
+
+	err = c.WaittingTransactionConfirmed(txid)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (c *Client) jsonRPC(data []byte, url, requestType string) ([]byte, int, error) {
